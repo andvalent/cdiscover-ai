@@ -48,7 +48,8 @@ resource "aws_route_table_association" "a" {
 
 # 5. The S3 Bucket - Your private data store
 resource "aws_s3_bucket" "hyperion_data" {
-  bucket = "hyperion-classical-assistant" 
+  # Change this line
+  bucket = var.s3_bucket_name # <--- Use a variable instead of a hard-coded string
 
   tags = {
     Name = "HyperionData"
@@ -73,7 +74,9 @@ resource "aws_spot_instance_request" "scraper_node" {
   key_name = aws_key_pair.deployer_key.key_name
 
   # Run our startup script
-  user_data = file("user_data.sh")
+  user_data = templatefile("user_data.sh.tpl", {
+  bucket_name = aws_s3_bucket.hyperion_data.id
+  })
 
   # Wait for the spot request to be fulfilled before completing
   wait_for_fulfillment = true

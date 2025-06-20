@@ -1,0 +1,36 @@
+# Terraform state
+*.tfstate
+*.tfstate.*
+crash.log
+terraform.tfvars
+terraform.tfvars.json
+*.tfbackup
+terraform.tfstate.backup
+
+# Terraform provider lock file (can be kept if needed for versioning)
+.terraform.lock.hcl
+
+# Local .terraform directories
+.terraform/
+
+# Ignore editor/OS files
+*.swp
+*.swo
+*.bak
+*.tmp
+*.zip
+.DS_Store
+Thumbs.db
+
+# Python cache and virtual environments (exclude only at project root level)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+env/
+venv/
+.virtualenv/
+
+# Do NOT ignore lambda_layer directory and its contents
+!lambda_layer/
+!lambda_layer/**

@@ -56,12 +56,10 @@ resource "aws_s3_bucket" "hyperion_data" {
   }
 }
 
-# 6. The EC2 Spot Instance Request
-resource "aws_spot_instance_request" "scraper_node" {
+# 6. The EC2 Instance Request
+resource "aws_instance" "scraper_node" {
   ami           = "ami-092ff8e60e2d51e19" 
   instance_type = "t3.micro"
-  
-  spot_price    = "0.005" 
   
   # Attach the IAM role for S3 access
   iam_instance_profile = aws_iam_instance_profile.s3_access_profile.name
@@ -78,8 +76,6 @@ resource "aws_spot_instance_request" "scraper_node" {
   bucket_name = aws_s3_bucket.hyperion_data.id
   })
 
-  # Wait for the spot request to be fulfilled before completing
-  wait_for_fulfillment = true
 
   tags = {
     Name = "Hyperion-Scraper-Node"

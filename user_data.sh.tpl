@@ -20,4 +20,4 @@ pip3 install -r requirements.txt
 # The 'nohup' command ensures it keeps running even if you disconnect.
 # The '&' runs it in the background.
 # Output is logged to a file for debugging.
-nohup sudo -u ec2-user python3 hyperion_scraper.py > /home/ec2-user/scraper.log 2>&1 &
+# nohup sudo -u ec2-user python3 hyperion_scraper.py > /home/ec2-user/scraper.log 2>&1 &

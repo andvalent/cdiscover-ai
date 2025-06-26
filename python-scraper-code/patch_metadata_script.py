@@ -12,10 +12,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 S3_BUCKET_NAME = 'hyperion-classical-assistant'
 PDF_PREFIX = 'pdf/'
 
-# IMPORTANT: Be a good internet citizen. This delay prevents overwhelming the server.
 REQUEST_DELAY_SECONDS = 2 
 
-# A User-Agent helps us look like a regular browser, reducing the chance of being blocked.
 REQUEST_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
@@ -38,7 +36,6 @@ def scrape_album_metadata(catalogue_number):
         soup = BeautifulSoup(response.text, 'html.parser')
 
         # --- Metadata Extraction ---
-        # The OpenGraph (og) tags are the most reliable source
         title = soup.find('meta', property='og:title')
         page_url = soup.find('meta', property='og:url')
         

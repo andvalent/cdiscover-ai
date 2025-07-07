@@ -49,7 +49,7 @@ resource "aws_route_table_association" "a" {
 # 5. The S3 Bucket - Your private data store
 resource "aws_s3_bucket" "hyperion_data" {
   # Change this line
-  bucket = var.s3_bucket_name # <--- Use a variable instead of a hard-coded string
+  bucket = var.s3_bucket_name 
 
   tags = {
     Name = "HyperionData"
@@ -80,4 +80,34 @@ resource "aws_instance" "scraper_node" {
   tags = {
     Name = "Hyperion-Scraper-Node"
   }
+}
+
+# 7. SQS Queues for Job Management ---
+
+# The Dead-Letter Queue (DLQ) for failed messages
+resource "aws_sqs_queue" "processing_dlq" {
+  name = "hyperion-processing-dlq"
+}
+
+# The main processing queue, configured to use the DLQ
+resource "aws_sqs_queue" "processing_queue" {
+  name                      = "hyperion-processing-queue"
+  delay_seconds             = 0
+  max_message_size          = 262144 # 256KB
+  message_retention_seconds = 345600 # 4 days
+  visibility_timeout_seconds = 300   # 5 minutes, should be > worker lambda timeout
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.processing_dlq.arn,
+    maxReceiveCount     = 3 # After 3 failures, send to DLQ
+  })
+}
+
+# --- 8. Lambda Triggers ---
+
+# This resource connects the SQS queue to the Worker Lambda
+resource "aws_lambda_event_source_mapping" "sqs_trigger" {
+  event_source_arn = aws_sqs_queue.processing_queue.arn
+  function_name    = aws_lambda_function.worker_lambda.arn
+  batch_size       = 5 # Process up to 5 messages in parallel per invocation
 }

@@ -58,3 +58,86 @@ resource "aws_iam_instance_profile" "s3_access_profile" {
   name = "ec2-s3-hyperion-access-profile"
   role = aws_iam_role.s3_access_role.name
 }
+
+
+# Role for the Dispatcher Lambda
+resource "aws_iam_role" "dispatcher_lambda_role" {
+  name = "hyperion-dispatcher-lambda-role"
+  assume_role_policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+}
+
+# Policy allowing Dispatcher to list S3 and send to SQS
+resource "aws_iam_policy" "dispatcher_policy" {
+  name   = "hyperion-dispatcher-policy"
+  policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [
+      {
+        Action   = ["s3:ListBucket", "s3:GetObject"], # GetObject is useful for checking existence
+        Effect   = "Allow",
+        Resource = ["${aws_s3_bucket.hyperion_data.arn}", "${aws_s3_bucket.hyperion_data.arn}/*"]
+      },
+      {
+        Action   = "sqs:SendMessage",
+        Effect   = "Allow",
+        Resource = aws_sqs_queue.processing_queue.arn
+      }
+    ]
+  })
+}
+resource "aws_iam_role_policy_attachment" "dispatcher_policy_attach" {
+  role       = aws_iam_role.dispatcher_lambda_role.name
+  policy_arn = aws_iam_policy.dispatcher_policy.arn
+}
+resource "aws_iam_role_policy_attachment" "dispatcher_logs_attach" {
+  role       = aws_iam_role.dispatcher_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Role for the Worker Lambda
+resource "aws_iam_role" "worker_lambda_role" {
+  name = "hyperion-worker-lambda-role"
+  assume_role_policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+}
+
+# Policy allowing Worker to read/write S3 and manage SQS messages
+resource "aws_iam_policy" "worker_policy" {
+  name   = "hyperion-worker-policy"
+  policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [
+      {
+        Action   = ["s3:GetObject", "s3:PutObject"],
+        Effect   = "Allow",
+        Resource = "${aws_s3_bucket.hyperion_data.arn}/*"
+      },
+      {
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+        Effect   = "Allow",
+        Resource = aws_sqs_queue.processing_queue.arn
+      }
+    ]
+  })
+}
+resource "aws_iam_role_policy_attachment" "worker_policy_attach" {
+  role       = aws_iam_role.worker_lambda_role.name
+  policy_arn = aws_iam_policy.worker_policy.arn
+}
+resource "aws_iam_role_policy_attachment" "worker_logs_attach" {
+  role       = aws_iam_role.worker_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}

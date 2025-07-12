@@ -155,13 +155,13 @@ resource "aws_iam_policy" "vectorization_ec2_policy" {
         # Permission to write the final Parquet file
         Action   = "s3:PutObject",
         Effect   = "Allow",
-        Resource = "${aws_s3_bucket.hyperion_data.arn}/${VECTOR_STORE_PREFIX}*"
+        Resource = "${aws_s3_bucket.hyperion_data.arn}/${var.vector_store_prefix}*"
       },
       {
         # Permission to call the Bedrock embedding model
         Action   = "bedrock:InvokeModel",
         Effect   = "Allow",
-        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/${BEDROCK_MODEL_ID}"
+        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model_id}"
       }
     ]
   })
@@ -183,7 +183,7 @@ resource "aws_iam_instance_profile" "vectorization_ec2_profile" {
 resource "aws_instance" "vectorization_runner" {
   # Find the latest Amazon Linux 2 AMI for your region (eu-central-1)
   # This is a current one, but you can search for the latest if needed.
-  ami           = "ami-0ac31823529e4b67f" 
+  ami           = "ami-0af9b40b1a16fe700" 
   
   # t3.medium is a good choice for this task as pandas/pyarrow can use more memory.
   instance_type = "t3.medium"

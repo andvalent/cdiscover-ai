@@ -14,3 +14,13 @@ variable "aws_region"{
   description = "The aws region"
   type        = string
 }
+
+variable "bedrock_model_id"{
+  description = "Bedrock model for vectorization"
+  type = string
+}
+
+variable "vector_store_prefix" {
+  description = "s3 bucket to save parquet file"
+  type = string
+}

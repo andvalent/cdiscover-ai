@@ -9,3 +9,8 @@ variable "s3_bucket_name" {
   description = "The globally unique name for the S3 bucket to store scraped data."
   type        = string
 }
+
+variable "aws_region"{
+  description = "The aws region"
+  type        = string
+}

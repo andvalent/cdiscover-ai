@@ -24,3 +24,9 @@ variable "vector_store_prefix" {
   description = "s3 bucket to save parquet file"
   type = string
 }
+
+variable "create_scraper_node" {
+  description = "If set to true, the Hyperion Scraper EC2 instance will be created. Set to false if it has already run its course."
+  type        = bool
+  default     = false # Set the default to false to prevent accidental creation
+}

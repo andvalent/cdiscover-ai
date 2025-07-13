@@ -32,3 +32,11 @@ resource "aws_key_pair" "deployer_key" {
   # This tells Terraform to read your public key from a file.
   public_key = file("~/.ssh/id_rsa.pub")
 }
+
+
+resource "aws_key_pair" "vectorizer_key" {
+  key_name   = "hyperion-vectorizer-key"
+
+  # Use the new, correct path. Use forward slashes.
+  public_key = file("C:/Users/valen/MyKeys/hyperion-vectorizer-key.pub")
+}

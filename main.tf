@@ -56,12 +56,16 @@ resource "aws_s3_bucket" "hyperion_data" {
   }
 }
 
-# 6. The EC2 Instance Request
 resource "aws_instance" "scraper_node" {
-  ami           = "ami-092ff8e60e2d51e19" 
+  # conditional creation 
+  count = var.create_scraper_node ? 1 : 0
+
+  ami           = "ami-092ff8e60e2d51e19"
   instance_type = "t3.micro"
   
   # Attach the IAM role for S3 access
+  # Note: The resources this depends on (like the IAM profile) will still be created,
+  # which is fine. They just won't be attached to a running instance.
   iam_instance_profile = aws_iam_instance_profile.s3_access_profile.name
 
   # Place it in our public subnet and attach the firewall
@@ -73,7 +77,7 @@ resource "aws_instance" "scraper_node" {
 
   # Run our startup script
   user_data = templatefile("user_data.sh.tpl", {
-  bucket_name = aws_s3_bucket.hyperion_data.id
+    bucket_name = aws_s3_bucket.hyperion_data.id
   })
 
 
@@ -197,7 +201,7 @@ resource "aws_instance" "vectorization_runner" {
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
   
   # Associate your public SSH key
-  key_name = aws_key_pair.deployer_key.key_name
+  key_name = aws_key_pair.vectorizer_key.key_name
 
   # Run our startup script using the new template file
   user_data = templatefile("user_data.sh2.tpl", {

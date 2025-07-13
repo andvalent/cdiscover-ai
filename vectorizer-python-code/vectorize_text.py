@@ -33,7 +33,7 @@ def main():
     
     # 1. Initialize clients and LangChain components
     s3_client = boto3.client('s3')
-    bedrock_client = boto3.client('bedrock-runtime')
+    bedrock_client = boto3.client('bedrock-runtime', region_name='eu-central-1')
     
     embeddings = BedrockEmbeddings(client=bedrock_client, model_id=BEDROCK_MODEL_ID)
     text_splitter = RecursiveCharacterTextSplitter(

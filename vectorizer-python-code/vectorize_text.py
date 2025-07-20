@@ -8,30 +8,72 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-S3_BUCKET = os.environ.get("S3_BUCKET_NAME") 
+S3_BUCKET = os.environ.get("S3_BUCKET_NAME")
 PROCESSED_TEXT_PREFIX = 'processed_text/'
 VECTOR_STORE_PREFIX = 'vector-store/'
-# --- MODIFICATION: Use the final production filename ---
-OUTPUT_FILENAME = 'hyperion_embeddings.parquet'
+# Process 500 chunks at a time to keep memory usage low.
+BATCH_SIZE = 500
+# The base name for the output files. We will add parts to it.
+OUTPUT_FILENAME_BASE = 'hyperion_embeddings'
 
-# Use a powerful and cost-effective embedding model from Bedrock
 BEDROCK_MODEL_ID = "amazon.titan-embed-text-v1"
 
-# --- Main Logic ---
+# --- NEW: Helper function to process and upload one batch ---
+def process_and_upload_batch(batch_chunks, batch_number, embeddings_client, s3_client):
+    """
+    Takes a batch of chunks, vectorizes them, and uploads the result as a Parquet file.
+    """
+    if not batch_chunks:
+        logging.info("Skipping empty batch.")
+        return
+
+    logging.info(f"--- Processing batch {batch_number} with {len(batch_chunks)} chunks ---")
+
+    # 1. Get the text from the batch
+    batch_texts = [item['chunk_text'] for item in batch_chunks]
+
+    # 2. Vectorize the batch
+    try:
+        vectors = embeddings_client.embed_documents(batch_texts)
+        logging.info(f"Batch {batch_number}: Successfully received {len(vectors)} embeddings from Bedrock.")
+    except Exception as e:
+        logging.error(f"Batch {batch_number}: Bedrock embedding failed. Error: {e}")
+        # Decide if you want to skip this batch or stop the whole process
+        return
+
+    # 3. Combine metadata and vectors into a DataFrame
+    for i, item in enumerate(batch_chunks):
+        item['vector'] = vectors[i]
+    df = pd.DataFrame(batch_chunks)
+
+    # 4. Save the DataFrame as a Parquet file and upload to S3
+    output_filename = f"{OUTPUT_FILENAME_BASE}_part_{batch_number:05d}.parquet"
+    local_path = f"/tmp/{output_filename}"
+    s3_output_key = f"{VECTOR_STORE_PREFIX}{output_filename}"
+    
+    try:
+        df.to_parquet(local_path, index=False)
+        s3_client.upload_file(local_path, S3_BUCKET, s3_output_key)
+        logging.info(f"Batch {batch_number}: Successfully uploaded to s3://{S3_BUCKET}/{s3_output_key}")
+    except Exception as e:
+        logging.error(f"Batch {batch_number}: S3 upload failed. Error: {e}")
+    finally:
+        # 5. Clean up the local file to save disk space
+        if os.path.exists(local_path):
+            os.remove(local_path)
+
 
 def main():
     """
-    Main function to run the vectorization process on the ENTIRE dataset.
+    Main function to run the vectorization process in memory-efficient batches.
     """
     if not S3_BUCKET:
         logging.error("S3_BUCKET_NAME environment variable not set. Exiting.")
         return
 
-    logging.info(f"--- Starting FULL Vectorization Run for bucket: {S3_BUCKET} ---")
+    logging.info(f"--- Starting BATCH Vectorization Run for bucket: {S3_BUCKET} ---")
     
-    # 1. Initialize clients and LangChain components
     s3_client = boto3.client('s3')
-    # It's good practice to specify the region for the Bedrock client
     bedrock_client = boto3.client('bedrock-runtime', region_name='eu-central-1') 
     
     embeddings = BedrockEmbeddings(client=bedrock_client, model_id=BEDROCK_MODEL_ID)
@@ -41,15 +83,15 @@ def main():
         length_function=len,
     )
     
-    all_chunks_with_metadata = []
+    # This list will only hold one batch at a time, not everything.
+    current_batch = []
+    batch_counter = 0
     files_processed = 0
 
-    # 2. List all processed text files from S3
     logging.info(f"Listing all files from s3://{S3_BUCKET}/{PROCESSED_TEXT_PREFIX}")
     paginator = s3_client.get_paginator('list_objects_v2')
     pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=PROCESSED_TEXT_PREFIX)
     
-    # 3. Read, chunk, and prepare text from each file
     for page in pages:
         for obj in page.get('Contents', []):
             if not obj['Key'].endswith('.txt'):
@@ -58,10 +100,6 @@ def main():
             s3_key = obj['Key']
             catalogue_number = os.path.basename(s3_key).replace('.txt', '')
             
-            # Log progress every 100 files to keep track
-            if (files_processed + 1) % 100 == 0:
-                logging.info(f"Processing file {files_processed + 1}...")
-            
             try:
                 response = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_key)
                 text_content = response['Body'].read().decode('utf-8')
@@ -69,54 +107,33 @@ def main():
                 chunks = text_splitter.split_text(text_content)
                 
                 for i, chunk in enumerate(chunks):
-                    all_chunks_with_metadata.append({
+                    current_batch.append({
                         'catalogue_number': catalogue_number,
                         'chunk_id': f"{catalogue_number}_{i}",
                         'chunk_text': chunk,
                         's3_source_key': s3_key
                     })
+                    
+                    # --- CORE LOGIC CHANGE ---
+                    # When the batch is full, process it and clear it.
+                    if len(current_batch) >= BATCH_SIZE:
+                        batch_counter += 1
+                        process_and_upload_batch(current_batch, batch_counter, embeddings, s3_client)
+                        current_batch.clear() # Free the memory
                 
                 files_processed += 1
+                if files_processed % 100 == 0:
+                    logging.info(f"Files processed so far: {files_processed}")
+
             except Exception as e:
                 logging.error(f"Failed to process file {s3_key}. Error: {e}")
 
-    if not all_chunks_with_metadata:
-        logging.warning("No text chunks were generated. Exiting.")
-        return
+    # --- After the loop, process any remaining chunks in the last batch ---
+    if current_batch:
+        batch_counter += 1
+        process_and_upload_batch(current_batch, batch_counter, embeddings, s3_client)
 
-    logging.info(f"Generated a total of {len(all_chunks_with_metadata)} chunks from {files_processed} files to be vectorized.")
-
-    # 4. Vectorize all chunks in a single, efficient batch call
-    all_texts = [item['chunk_text'] for item in all_chunks_with_metadata]
-    
-    logging.info(f"Calling Amazon Bedrock to create embeddings for all {len(all_texts)} chunks. This may take some time...")
-    try:
-        vectors = embeddings.embed_documents(all_texts)
-        logging.info("Successfully received embeddings from Bedrock.")
-    except Exception as e:
-        logging.error(f"Bedrock embedding failed. Error: {e}")
-        return
-
-    # 5. Combine metadata and vectors into a DataFrame
-    for i, item in enumerate(all_chunks_with_metadata):
-        item['vector'] = vectors[i]
-        
-    df = pd.DataFrame(all_chunks_with_metadata)
-
-    # 6. Save the DataFrame as a Parquet file and upload to S3
-    local_path = f"/tmp/{OUTPUT_FILENAME}"
-    df.to_parquet(local_path, index=False)
-    logging.info(f"Successfully saved embeddings to local Parquet file: {local_path}")
-    
-    s3_output_key = f"{VECTOR_STORE_PREFIX}{OUTPUT_FILENAME}"
-    logging.info(f"Uploading Parquet file to s3://{S3_BUCKET}/{s3_output_key}")
-    try:
-        s3_client.upload_file(local_path, S3_BUCKET, s3_output_key)
-        logging.info("Upload successful!")
-    except Exception as e:
-        logging.error(f"S3 upload failed. Error: {e}")
-
-    logging.info("--- FULL Vectorization process complete! ---")
+    logging.info(f"--- BATCH Vectorization process complete! Processed {files_processed} files in {batch_counter} batches. ---")
 
 if __name__ == '__main__':
     main()

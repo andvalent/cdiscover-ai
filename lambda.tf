@@ -53,3 +53,4 @@ resource "aws_lambda_function" "worker_lambda" {
     }
   }
 }
+

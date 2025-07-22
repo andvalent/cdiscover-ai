@@ -2,8 +2,9 @@
 # This file contains all resources for the serverless RAG Search API.
 
 # --- 1. IAM Role & Policy for the RAG API Lambda ---
+# (No changes needed here)
 resource "aws_iam_role" "rag_api_lambda_role" {
-  name = "hyperion-rag-api-lambda-role" # Specific name
+  name = "hyperion-rag-api-lambda-role"
   assume_role_policy = jsonencode({
     Version   = "2012-10-17",
     Statement = [{
@@ -13,9 +14,8 @@ resource "aws_iam_role" "rag_api_lambda_role" {
     }]
   })
 }
-
 resource "aws_iam_policy" "rag_api_lambda_policy" {
-  name   = "hyperion-rag-api-lambda-policy" # Specific name
+  name   = "hyperion-rag-api-lambda-policy"
   policy = jsonencode({
     Version   = "2012-10-17",
     Statement = [
@@ -43,7 +43,6 @@ resource "aws_iam_policy" "rag_api_lambda_policy" {
     ]
   })
 }
-
 resource "aws_iam_role_policy_attachment" "rag_api_lambda_policy_attach" {
   role       = aws_iam_role.rag_api_lambda_role.name
   policy_arn = aws_iam_policy.rag_api_lambda_policy.arn
@@ -52,31 +51,27 @@ resource "aws_iam_role_policy_attachment" "rag_api_lambda_policy_attach" {
 # --- 2. ZIP the Lambda Code ---
 data "archive_file" "rag_api_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/rag_api_lambda" # Points to our new, specific directory
+  # <<-- FIXED to use your correct folder path
+  source_dir  = "${path.module}/lambda_functions/rag_api_lambda"
   output_path = "${path.module}/rag_api_deployment.zip"
 }
 
 # --- 3. The RAG API Lambda Function Resource ---
+# (No changes needed here, it was already correct)
 resource "aws_lambda_function" "rag_api_lambda" {
   filename         = data.archive_file.rag_api_zip.output_path
-  function_name    = "hyperion-rag-api-handler" # Specific name
+  function_name    = "hyperion-rag-api-handler"
   role             = aws_iam_role.rag_api_lambda_role.arn
-  handler          = "handler.lambda_handler" # File is handler.py, function is lambda_handler
-  runtime          = "python3.10"             # <<-- UPDATED from python3.9 for modern support
+  handler          = "handler.lambda_handler"
+  runtime          = "python3.10"
   source_code_hash = data.archive_file.rag_api_zip.output_base64sha256
 
-  # <<-- ADDED: The Klayers for Pandas, Numpy, and PyArrow
   layers = [
-    # Layer 1: Pandas (which includes Numpy) for Python 3.10
     "arn:aws:lambda:${var.aws_region}:770693421928:layer:Klayers-p310-pandas:25",
-
-    # Layer 2: PyArrow for Python 3.10
     "arn:aws:lambda:${var.aws_region}:770693421928:layer:Klayers-p310-pyarrow:5"
   ]
-
   memory_size = 1024
   timeout     = 30
-
   environment {
     variables = {
       S3_BUCKET_NAME = aws_s3_bucket.hyperion_data.id
@@ -86,24 +81,22 @@ resource "aws_lambda_function" "rag_api_lambda" {
 }
 
 # --- 4. API Gateway REST API ---
+# (No changes needed here)
 resource "aws_api_gateway_rest_api" "rag_api" {
-  name        = "HyperionRAG_API" # Specific name
+  name        = "HyperionRAG_API"
   description = "API for the Hyperion RAG search application"
 }
-
 resource "aws_api_gateway_resource" "rag_api_search_resource" {
   rest_api_id = aws_api_gateway_rest_api.rag_api.id
   parent_id   = aws_api_gateway_rest_api.rag_api.root_resource_id
   path_part   = "search"
 }
-
 resource "aws_api_gateway_method" "rag_api_search_post" {
   rest_api_id   = aws_api_gateway_rest_api.rag_api.id
   resource_id   = aws_api_gateway_resource.rag_api_search_resource.id
   http_method   = "POST"
   authorization = "NONE"
 }
-
 resource "aws_api_gateway_integration" "rag_api_lambda_integration" {
   rest_api_id             = aws_api_gateway_rest_api.rag_api.id
   resource_id             = aws_api_gateway_resource.rag_api_search_resource.id
@@ -114,13 +107,22 @@ resource "aws_api_gateway_integration" "rag_api_lambda_integration" {
 }
 
 # --- 5. API Gateway Deployment and Stage ---
+# <<-- MODERNIZED to use separate deployment and stage resources
 resource "aws_api_gateway_deployment" "rag_api_deployment" {
   rest_api_id = aws_api_gateway_rest_api.rag_api.id
   depends_on  = [aws_api_gateway_integration.rag_api_lambda_integration]
-  stage_name  = "v1"
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+resource "aws_api_gateway_stage" "rag_api_stage" {
+  deployment_id = aws_api_gateway_deployment.rag_api_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.rag_api.id
+  stage_name    = "v1"
 }
 
 # --- 6. Lambda Permission for API Gateway to Invoke ---
+# (No changes needed here)
 resource "aws_lambda_permission" "rag_api_gateway_permission" {
   statement_id  = "AllowAPIGatewayToInvokeRAGLambda"
   action        = "lambda:InvokeFunction"
@@ -130,7 +132,8 @@ resource "aws_lambda_permission" "rag_api_gateway_permission" {
 }
 
 # --- 7. Output the Final API Endpoint URL ---
+# <<-- MODERNIZED to use the stage's invoke_url
 output "rag_api_invoke_url" {
   description = "The invoke URL for the RAG API search endpoint"
-  value       = "${aws_api_gateway_deployment.rag_api_deployment.invoke_url}${aws_api_gateway_resource.rag_api_search_resource.path}"
+  value       = "${aws_api_gateway_stage.rag_api_stage.invoke_url}${aws_api_gateway_resource.rag_api_search_resource.path}"
 }

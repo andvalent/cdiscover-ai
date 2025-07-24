@@ -82,16 +82,30 @@ resource "aws_security_group" "rag_ec2_sg" {
 
 # --- EC2 Instance ---
 resource "aws_instance" "rag_api_server" {
-  # Standard Amazon Linux 2 AMI. Find the latest for your region if needed.
-  ami           = "ami-003c9adf81de74b40" 
-  instance_type = "t3.medium" # Need sufficient RAM for pandas
+  # Updated AMI for Amazon Linux 2023
+  ami           = "ami-09191d47657c9691a" 
+  
+  # Changed instance type as requested
+  instance_type = "t2.medium" 
+
   key_name      = var.ssh_key_name
 
-  iam_instance_profile = aws_iam_instance_profile.rag_ec2_instance_profile.name
+  # This block configures the root EBS volume
+  root_block_device {
+    volume_size = 30  # Size in GiB
+    volume_type = "gp3" # Modern, cost-effective SSD
+  }
+
+  iam_instance_profile   = aws_iam_instance_profile.rag_ec2_instance_profile.name
   vpc_security_group_ids = [aws_security_group.rag_ec2_sg.id]
 
   # This runs our setup.sh script on first boot
-  user_data = file("${path.module}/setup.sh")
+  user_data = templatefile("${path.module}/setup.sh", {
+    github_username = var.github_username,
+    github_pat      = var.github_pat,
+    s3_bucket_name  = var.s3_bucket_name,
+    aws_region      = var.aws_region
+  })
 
   tags = {
     Name = "Hyperion RAG API Server"

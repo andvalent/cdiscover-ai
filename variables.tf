@@ -43,8 +43,13 @@ variable "ssh_key_name" {
   default     = "hyperion_deploy_key" 
 }
 
-variable "github_pat"{
-  description = "access token to download repo from ec2"
-  type = string
-  default = "mypat"
+variable "github_username" {
+  description = "GitHub username"
+  type        = string
+}
+
+variable "github_pat" {
+  description = "GitHub Personal Access Token"
+  type        = string
+  sensitive   = true
 }

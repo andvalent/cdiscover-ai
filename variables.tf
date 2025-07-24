@@ -31,6 +31,12 @@ variable "create_scraper_node" {
   default     = false # Set the default to false to prevent accidental creation
 }
 
+variable "create_vectorizer_node" {
+  description = "If set to true, the Hyperion Vectorizer EC2 instance will be created. Set to false if it has already run its course."
+  type        = bool
+  default     = false # Set the default to false to prevent accidental creation
+}
+
 variable "ssh_key_name" {
   description = "The name of the EC2 key pair for SSH access."
   type        = string

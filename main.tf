@@ -187,6 +187,8 @@ resource "aws_iam_instance_profile" "vectorization_ec2_profile" {
 resource "aws_instance" "vectorization_runner" {
   # Find the latest Amazon Linux 2 AMI for your region (eu-central-1)
   # This is a current one, but you can search for the latest if needed.
+  # conditional creation:
+  count = var.create_vectorizer_node ? 1 : 0
   ami           = "ami-0af9b40b1a16fe700" 
   
   # t3.medium is a good choice for this task as pandas/pyarrow can use more memory.

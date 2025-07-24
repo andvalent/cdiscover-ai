@@ -30,3 +30,9 @@ variable "create_scraper_node" {
   type        = bool
   default     = false # Set the default to false to prevent accidental creation
 }
+
+variable "ssh_key_name" {
+  description = "The name of the EC2 key pair for SSH access."
+  type        = string
+  default     = "my-ec2-key"
+}

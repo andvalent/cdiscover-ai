@@ -12,3 +12,15 @@ output "s3_bucket_name" {
   description = "The name of the S3 bucket for data storage"
   value       = aws_s3_bucket.hyperion_data.id
 }
+
+
+output "api_server_public_dns" {
+  description = "The public DNS name of the RAG API server."
+  value       = aws_instance.rag_api_server.public_dns
+}
+
+output "api_test_command" {
+  description = "A sample curl command to test the API."
+  value       = "curl -X POST http://${aws_instance.rag_api_server.public_dns}/search -H \"Content-Type: application/json\" -d '{\"query\": \"recommend a cd with a 900 symphony inspired by nature\"}'"
+}
+

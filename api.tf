@@ -1,21 +1,19 @@
-# api.tf
-# This file contains all resources for the serverless RAG Search API.
-
-# --- 1. IAM Role & Policy for the RAG API Lambda ---
-# (No changes needed here)
-resource "aws_iam_role" "rag_api_lambda_role" {
-  name = "hyperion-rag-api-lambda-role"
+# --- IAM Role for EC2 ---
+resource "aws_iam_role" "rag_ec2_role" {
+  name = "hyperion-rag-ec2-role"
   assume_role_policy = jsonencode({
     Version   = "2012-10-17",
     Statement = [{
       Action    = "sts:AssumeRole",
       Effect    = "Allow",
-      Principal = { Service = "lambda.amazonaws.com" }
+      Principal = { Service = "ec2.amazonaws.com" }
     }]
   })
 }
-resource "aws_iam_policy" "rag_api_lambda_policy" {
-  name   = "hyperion-rag-api-lambda-policy"
+
+# Re-use the same policy logic, but for an EC2 role
+resource "aws_iam_policy" "rag_ec2_policy" {
+  name   = "hyperion-rag-ec2-policy"
   policy = jsonencode({
     Version   = "2012-10-17",
     Statement = [
@@ -28,8 +26,8 @@ resource "aws_iam_policy" "rag_api_lambda_policy" {
         Action   = ["s3:GetObject", "s3:ListBucket"],
         Effect   = "Allow",
         Resource = [
-          aws_s3_bucket.hyperion_data.arn,
-          "${aws_s3_bucket.hyperion_data.arn}/vector-store/*"
+          "arn:aws:s3:::${var.s3_bucket_name}",
+          "arn:aws:s3:::${var.s3_bucket_name}/vector-store/*"
         ]
       },
       {
@@ -43,97 +41,60 @@ resource "aws_iam_policy" "rag_api_lambda_policy" {
     ]
   })
 }
-resource "aws_iam_role_policy_attachment" "rag_api_lambda_policy_attach" {
-  role       = aws_iam_role.rag_api_lambda_role.name
-  policy_arn = aws_iam_policy.rag_api_lambda_policy.arn
+
+resource "aws_iam_role_policy_attachment" "rag_ec2_policy_attach" {
+  role       = aws_iam_role.rag_ec2_role.name
+  policy_arn = aws_iam_policy.rag_ec2_policy.arn
 }
 
-# --- 2. ZIP the Lambda Code ---
-data "archive_file" "rag_api_zip" {
-  type        = "zip"
-  # <<-- FIXED to use your correct folder path
-  source_dir  = "${path.module}/lambda_functions/rag_api_lambda"
-  output_path = "${path.module}/rag_api_deployment.zip"
+resource "aws_iam_instance_profile" "rag_ec2_instance_profile" {
+  name = "hyperion-rag-ec2-instance-profile"
+  role = aws_iam_role.rag_ec2_role.name
 }
 
-# --- 3. The RAG API Lambda Function Resource ---
-# (No changes needed here, it was already correct)
-resource "aws_lambda_function" "rag_api_lambda" {
-  filename         = data.archive_file.rag_api_zip.output_path
-  function_name    = "hyperion-rag-api-handler"
-  role             = aws_iam_role.rag_api_lambda_role.arn
-  handler          = "handler.lambda_handler"
-  runtime          = "python3.10"
-  source_code_hash = data.archive_file.rag_api_zip.output_base64sha256
+# --- Security Group (Firewall) ---
+resource "aws_security_group" "rag_ec2_sg" {
+  name        = "hyperion-rag-ec2-sg"
+  description = "Allow HTTP and SSH traffic"
 
-  layers = [
-    "arn:aws:lambda:${var.aws_region}:770693421928:layer:Klayers-p310-pandas:25",
-    "arn:aws:lambda:${var.aws_region}:770693421928:layer:Klayers-p310-pyarrow:5"
-  ]
-  memory_size = 1024
-  timeout     = 30
-  environment {
-    variables = {
-      S3_BUCKET_NAME = aws_s3_bucket.hyperion_data.id
-      AWS_REGION     = var.aws_region
-    }
+  ingress {
+    from_port   = 80 # HTTP
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 22 # SSH
+    to_port     = 22
+    protocol    = "tcp"
+    # IMPORTANT: For production, restrict this to your IP address.
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
-# --- 4. API Gateway REST API ---
-# (No changes needed here)
-resource "aws_api_gateway_rest_api" "rag_api" {
-  name        = "HyperionRAG_API"
-  description = "API for the Hyperion RAG search application"
-}
-resource "aws_api_gateway_resource" "rag_api_search_resource" {
-  rest_api_id = aws_api_gateway_rest_api.rag_api.id
-  parent_id   = aws_api_gateway_rest_api.rag_api.root_resource_id
-  path_part   = "search"
-}
-resource "aws_api_gateway_method" "rag_api_search_post" {
-  rest_api_id   = aws_api_gateway_rest_api.rag_api.id
-  resource_id   = aws_api_gateway_resource.rag_api_search_resource.id
-  http_method   = "POST"
-  authorization = "NONE"
-}
-resource "aws_api_gateway_integration" "rag_api_lambda_integration" {
-  rest_api_id             = aws_api_gateway_rest_api.rag_api.id
-  resource_id             = aws_api_gateway_resource.rag_api_search_resource.id
-  http_method             = aws_api_gateway_method.rag_api_search_post.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.rag_api_lambda.invoke_arn
-}
+# --- EC2 Instance ---
+resource "aws_instance" "rag_api_server" {
+  # Standard Amazon Linux 2 AMI. Find the latest for your region if needed.
+  ami           = "ami-003c9adf81de74b40" 
+  instance_type = "t3.medium" # Need sufficient RAM for pandas
+  key_name      = var.ssh_key_name
 
-# --- 5. API Gateway Deployment and Stage ---
-# <<-- MODERNIZED to use separate deployment and stage resources
-resource "aws_api_gateway_deployment" "rag_api_deployment" {
-  rest_api_id = aws_api_gateway_rest_api.rag_api.id
-  depends_on  = [aws_api_gateway_integration.rag_api_lambda_integration]
-  lifecycle {
-    create_before_destroy = true
+  iam_instance_profile = aws_iam_instance_profile.rag_ec2_instance_profile.name
+  vpc_security_group_ids = [aws_security_group.rag_ec2_sg.id]
+
+  # This runs our setup.sh script on first boot
+  user_data = file("${path.module}/setup.sh")
+
+  tags = {
+    Name = "Hyperion RAG API Server"
   }
 }
-resource "aws_api_gateway_stage" "rag_api_stage" {
-  deployment_id = aws_api_gateway_deployment.rag_api_deployment.id
-  rest_api_id   = aws_api_gateway_rest_api.rag_api.id
-  stage_name    = "v1"
-}
 
-# --- 6. Lambda Permission for API Gateway to Invoke ---
-# (No changes needed here)
-resource "aws_lambda_permission" "rag_api_gateway_permission" {
-  statement_id  = "AllowAPIGatewayToInvokeRAGLambda"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.rag_api_lambda.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.rag_api.execution_arn}/*/${aws_api_gateway_method.rag_api_search_post.http_method}${aws_api_gateway_resource.rag_api_search_resource.path}"
-}
-
-# --- 7. Output the Final API Endpoint URL ---
-# <<-- MODERNIZED to use the stage's invoke_url
-output "rag_api_invoke_url" {
-  description = "The invoke URL for the RAG API search endpoint"
-  value       = "${aws_api_gateway_stage.rag_api_stage.invoke_url}${aws_api_gateway_resource.rag_api_search_resource.path}"
-}

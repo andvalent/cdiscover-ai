@@ -40,5 +40,5 @@ variable "create_vectorizer_node" {
 variable "ssh_key_name" {
   description = "The name of the EC2 key pair for SSH access."
   type        = string
-  default     = "my-ec2-key"
+  default     = "hyperion_deploy_key" 
 }

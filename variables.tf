@@ -42,3 +42,9 @@ variable "ssh_key_name" {
   type        = string
   default     = "hyperion_deploy_key" 
 }
+
+variable "github_pat"{
+  description = "access token to download repo from ec2"
+  type = string
+  default = "mypat"
+}

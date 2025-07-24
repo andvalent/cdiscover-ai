@@ -12,6 +12,11 @@ sudo yum install -y python3-pip
 # You will need to add the EC2 instance's SSH key to your repository's deploy keys.
 APP_DIR="/opt/rag-api"
 GIT_REPO_URL="git@github.com:andvalent/classical-rag-app-code.git"
+
+# This bypasses the interactive "yes/no" prompt.
+sudo ssh-keyscan github.com >> /home/ec2-user/.ssh/known_hosts
+
+
 sudo git clone $GIT_REPO_URL $APP_DIR
 
 # --- 3. Install Python Dependencies ---

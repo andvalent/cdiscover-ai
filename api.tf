@@ -86,7 +86,7 @@ resource "aws_instance" "rag_api_server" {
   ami           = "ami-09191d47657c9691a" 
   
   # Changed instance type as requested
-  instance_type = "t2.medium" 
+  instance_type = "t3.medium" 
 
   key_name      = var.ssh_key_name
 

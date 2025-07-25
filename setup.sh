@@ -18,9 +18,11 @@ cd $APP_DIR
 sudo pip3 install -r requirements.txt
 
 # --- 4. Create and Configure the Systemd Service ---
-# This part remains the same, but the ExecStart path might change slightly.
-# Let's verify the gunicorn path. It's safer to use the path discovered by the system.
+# This version includes the critical --preload flag and binds to port 8080.
 GUNICORN_PATH=$(sudo /usr/bin/python3.9 -m pip show gunicorn | grep Location | awk '{print $2}')/gunicorn
+
+# Dynamically calculate the number of workers based on CPU cores for better performance
+NUM_WORKERS=$(($(nproc --all) * 2 + 1))
 
 sudo bash -c 'cat > /etc/systemd/system/rag-api.service' <<EOF
 [Unit]
@@ -28,13 +30,21 @@ Description=Hyperion RAG API Server
 After=network.target
 
 [Service]
-User=root # Run as root to bind to port 80, or use a reverse proxy like Nginx
-Group=root
+# Run as a non-privileged user since we are not binding to a privileged port (< 1024)
+User=ec2-user
+Group=ec2-user
 WorkingDirectory=/opt/rag-api
+# Pass environment variables from Terraform to the application
 Environment="S3_BUCKET_NAME=${s3_bucket_name}"
 Environment="AWS_REGION=${aws_region}"
-ExecStart=$GUNICORN_PATH --workers 3 --bind 0.0.0.0:80 app:app
+# CRITICAL: Added --preload to load data only once in the master process.
+# CRITICAL: Changed bind port to 8080 to match security group.
+# DYNAMIC: Use calculated number of workers.
+ExecStart=$GUNICORN_PATH --workers $NUM_WORKERS --bind 0.0.0.0:8080 --preload app:app
 Restart=always
+# Add a timeout to allow for the initial data loading on slow starts
+RestartSec=10
+TimeoutStartSec=400
 
 [Install]
 WantedBy=multi-user.target

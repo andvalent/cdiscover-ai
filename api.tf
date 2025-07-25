@@ -68,9 +68,16 @@ resource "aws_security_group" "rag_ec2_sg" {
     from_port   = 22 # SSH
     to_port     = 22
     protocol    = "tcp"
-    # IMPORTANT: For production, restrict this to your IP address.
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  ingress {
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    } 
+
 
   egress {
     from_port   = 0

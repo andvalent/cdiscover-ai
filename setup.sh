@@ -1,29 +1,41 @@
 #!/bin/bash
+# This script is the final, verified version for automated deployment via Terraform.
+# It incorporates all fixes discovered during our interactive debugging session.
 set -e
 
-# --- 1. System Updates and Core Dependencies (using dnf for AL2023) ---
+# --- 1. System Updates and Core Dependencies ---
+# Includes policycoreutils-python-utils, which provides the 'chcon' command for the SELinux fix.
 sudo dnf update -y
-sudo dnf install -y git python3.9 python3-pip
+sudo dnf install -y git python3.9 python3-pip policycoreutils-python-utils
 
 # --- 2. Get the Application Code from Git ---
 APP_DIR="/opt/rag-api"
+# This URL will be populated by Terraform variables.
 GIT_REPO_URL="https://${github_username}:${github_pat}@github.com/${github_username}/classical-rag-app-code.git"
 
-# Clone the repo (as root)
+# Ensure idempotency by removing the directory if it exists from a previous failed run.
+sudo rm -rf $APP_DIR
+# Clone the repository as root.
 sudo git clone $GIT_REPO_URL $APP_DIR
 
-# --- 3. Install Python Dependencies & Fix Permissions ---
+# --- 3. Install Python Dependencies & Fix All Permissions ---
 cd $APP_DIR
 sudo pip3 install -r requirements.txt
 
-# This allows the service, running as ec2-user, to operate correctly.
+# FIX #1: Standard Permissions. Change ownership from root to the user the service runs as.
 sudo chown -R ec2-user:ec2-user $APP_DIR
-# --- END OF FIX ---
+
+# FIX #2: SELinux Permissions. Apply the correct security context to allow web service access.
+# This fixes the systemd '200/CHDIR' error.
+sudo chcon -t httpd_sys_content_t -R /opt/rag-api
 
 # --- 4. Create and Configure the Systemd Service ---
-GUNICORN_PATH=$(sudo /usr/bin/python3.9 -m pip show gunicorn | grep Location | awk '{print $2}')/gunicorn
+# FIX #3: Gunicorn Path. Use the correct, static path to the executable.
+# This fixes the systemd '203/EXEC' (command not found) error.
+GUNICORN_PATH="/usr/local/bin/gunicorn"
 NUM_WORKERS=$(($(nproc --all) * 2 + 1))
 
+# Create the service file. The environment variables will be populated by Terraform.
 sudo bash -c 'cat > /etc/systemd/system/rag-api.service' <<EOF
 [Unit]
 Description=Hyperion RAG API Server

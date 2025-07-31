@@ -1,7 +1,6 @@
 import boto3
 import json
-# import fitz  # PyMuPDF <-- REMOVED
-from pypdf import PdfReader # <-- ADDED
+from pypdf import PdfReader
 import os
 import io
 import logging

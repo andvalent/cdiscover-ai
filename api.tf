@@ -90,6 +90,7 @@ resource "aws_security_group" "rag_ec2_sg" {
 # --- EC2 Instance ---
 resource "aws_instance" "rag_api_server" {
   # Updated AMI for Amazon Linux 2023
+  count = var.create_rag_api ? 1 : 0
   ami           = "ami-09191d47657c9691a" 
   
   # Changed instance type as requested

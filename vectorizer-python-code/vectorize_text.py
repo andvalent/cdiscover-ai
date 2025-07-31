@@ -63,7 +63,6 @@ def process_and_upload_batch(batch_chunks, batch_number, embeddings_client, s3_c
         if os.path.exists(local_path):
             os.remove(local_path)
 
-
 def parse_metadata_from_text(text_content):
     """
     A new helper function to extract structured metadata from the raw text.
@@ -119,7 +118,7 @@ def main():
     
     embeddings = BedrockEmbeddings(client=bedrock_client, model_id=BEDROCK_MODEL_ID)
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+        chunk_size=1000, # You might want to experiment with smaller sizes like 512
         chunk_overlap=100,
         length_function=len,
     )
@@ -127,16 +126,11 @@ def main():
     current_batch = []
     batch_counter = 0
     files_processed = 0
-    
-    ### <<< ADD THIS LINE >>>
-    # Set a limit for our test run. Set to None or remove for the full run.
-    TEST_FILE_LIMIT = 10 
-    
+
     logging.info(f"Listing all files from s3://{S3_BUCKET}/{PROCESSED_TEXT_PREFIX}")
     paginator = s3_client.get_paginator('list_objects_v2')
     pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=PROCESSED_TEXT_PREFIX)
     
-    stop_processing = False # A flag to help us break out of the nested loop
     for page in pages:
         for obj in page.get('Contents', []):
             if not obj['Key'].endswith('.txt'):
@@ -145,22 +139,37 @@ def main():
             s3_key = obj['Key']
             
             try:
-                # [ ... All your existing processing logic for a single file remains here ... ]
-                # It's perfect as it is.
                 response = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_key)
                 text_content = response['Body'].read().decode('utf-8')
+                
+                # --- FIX #1: PARSE METADATA AND ISOLATE MAIN CONTENT ---
+                # This is the most critical change.
                 parsed_metadata, main_content_to_chunk = parse_metadata_from_text(text_content)
+                
+                # If we couldn't parse essential metadata, log a warning and skip.
                 if not parsed_metadata.get('source_url') or not parsed_metadata.get('album_title'):
                     logging.warning(f"Skipping file {s3_key} due to missing essential metadata (URL or Title).")
                     continue
+
+                # --- FIX #2: CHUNK ONLY THE NARRATIVE CONTENT ---
                 chunks = text_splitter.split_text(main_content_to_chunk)
+                
                 for i, chunk_text in enumerate(chunks):
+                    # --- FIX #3: ENRICH THE CHUNK TEXT FOR BETTER EMBEDDINGS ---
+                    # Prepend key context to the text that will be embedded.
+                    # This makes the vector much more specific and powerful.
                     enriched_chunk_text = (
                         f"From the album titled '{parsed_metadata.get('album_title', 'N/A')}' by composer(s) {parsed_metadata.get('composer', 'N/A')}. "
                         f"Note snippet: {chunk_text}"
                     )
+
+                    # Create a dictionary containing the TRUE metadata, separate from the text.
+                    # This is what you will store in Parquet and show to the user.
                     chunk_data = {
+                        # This is the text we will vectorize
                         'chunk_text': enriched_chunk_text, 
+                        
+                        # These are the clean metadata fields for your application
                         'album_title': parsed_metadata.get('album_title'),
                         'catalogue_number': parsed_metadata.get('catalogue_number'),
                         'composer': parsed_metadata.get('composer'),
@@ -170,29 +179,19 @@ def main():
                         's3_source_key': s3_key
                     }
                     current_batch.append(chunk_data)
+                    
+                    # Batch processing logic remains the same
                     if len(current_batch) >= BATCH_SIZE:
                         batch_counter += 1
                         process_and_upload_batch(current_batch, batch_counter, embeddings, s3_client)
                         current_batch.clear()
                 
-                # We successfully processed one file, so we increment the counter
                 files_processed += 1
-                logging.info(f"Processed file {files_processed}/{TEST_FILE_LIMIT}: {s3_key}")
-                
-                ### <<< ADD THIS LINE >>>
-                # Check if we have reached our test limit
-                if files_processed >= TEST_FILE_LIMIT:
-                    stop_processing = True
-                    break # Exit the inner loop (for obj in page...)
+                if files_processed % 100 == 0:
+                    logging.info(f"Files processed so far: {files_processed}")
 
             except Exception as e:
                 logging.error(f"Failed to process file {s3_key}. Error: {e}", exc_info=True)
-        
-        ### <<< ADD THIS LINE >>>
-        # If the flag is set, exit the outer loop (for page in pages...) too
-        if stop_processing:
-            logging.info(f"Reached test limit of {TEST_FILE_LIMIT} files. Stopping.")
-            break
 
     # Process the final batch
     if current_batch:
@@ -200,3 +199,6 @@ def main():
         process_and_upload_batch(current_batch, batch_counter, embeddings, s3_client)
 
     logging.info(f"--- BATCH Vectorization process complete! Processed {files_processed} files in {batch_counter} batches. ---")
+
+if __name__ == '__main__':
+    main()

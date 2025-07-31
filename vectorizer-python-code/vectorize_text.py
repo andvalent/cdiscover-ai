@@ -158,9 +158,12 @@ def main():
                     # --- FIX #3: ENRICH THE CHUNK TEXT FOR BETTER EMBEDDINGS ---
                     # Prepend key context to the text that will be embedded.
                     # This makes the vector much more specific and powerful.
+                    # This new format ensures all key metadata is available to the LLM within the context.
                     enriched_chunk_text = (
-                        f"From the album titled '{parsed_metadata.get('album_title', 'N/A')}' by composer(s) {parsed_metadata.get('composer', 'N/A')}. "
-                        f"Note snippet: {chunk_text}"
+                        f"Album Title: {parsed_metadata.get('album_title', 'N/A')}\n"
+                        f"Catalogue Number: {parsed_metadata.get('catalogue_number', 'N/A')}\n"
+                        f"Composer(s): {parsed_metadata.get('composer', 'N/A')}\n"
+                        f"--- Note Snippet ---\n{chunk_text}"
                     )
 
                     # Create a dictionary containing the TRUE metadata, separate from the text.

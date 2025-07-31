@@ -37,7 +37,7 @@ pip3 install boto3 langchain langchain_aws pyarrow pandas s3fs
 # --- 3. Clone Application and Set Permissions ---
 echo "Cloning the application repository from GitHub..."
 # We clone into a sub-directory of the ec2-user's home.
-git clone https://github.com/kauber/cdiscover-ai.git /home/ec2-user/app
+git clone https://github.com/andvalent/cdiscover-ai.git /home/ec2-user/app
 
 echo "Setting correct ownership for the cloned repository..."
 # The user_data script runs as root, so we must change the ownership of the

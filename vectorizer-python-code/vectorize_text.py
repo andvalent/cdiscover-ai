@@ -4,6 +4,7 @@ import os
 import logging
 from langchain_aws import BedrockEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+import re
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -62,10 +63,49 @@ def process_and_upload_batch(batch_chunks, batch_number, embeddings_client, s3_c
         if os.path.exists(local_path):
             os.remove(local_path)
 
+def parse_metadata_from_text(text_content):
+    """
+    A new helper function to extract structured metadata from the raw text.
+    This is the core of our fix for the metadata problem.
+    """
+    metadata = {}
+    
+    # Use regular expressions to find and extract our key-value pairs.
+    # The 're.DOTALL' flag allows '.' to match newlines.
+    # The '(.*?)' is a non-greedy match for the value.
+    album_title_match = re.search(r"Album Title: (.*?)\n", text_content)
+    if album_title_match:
+        metadata['album_title'] = album_title_match.group(1).strip()
+
+    catalogue_match = re.search(r"Catalogue Number: (.*?)\n", text_content)
+    if catalogue_match:
+        metadata['catalogue_number'] = catalogue_match.group(1).strip()
+    
+    composer_match = re.search(r"Composer\(s\): (.*?)\n", text_content)
+    if composer_match:
+        metadata['composer'] = composer_match.group(1).strip()
+
+    performer_match = re.search(r"Performer\(s\): (.*?)\n", text_content)
+    if performer_match:
+        metadata['performer'] = performer_match.group(1).strip()
+
+    url_match = re.search(r"Source URL: (.*?)\n", text_content)
+    if url_match:
+        metadata['source_url'] = url_match.group(1).strip()
+
+    # Isolate the actual content to be chunked.
+    # We can split the text after the metadata header. A simple way is to find the end of the URL line.
+    content_start_index = 0
+    if url_match:
+        content_start_index = url_match.end()
+    
+    main_content = text_content[content_start_index:].strip()
+    
+    return metadata, main_content
 
 def main():
     """
-    Main function to run the vectorization process in memory-efficient batches.
+    Main function with corrected logic for parsing and chunking.
     """
     if not S3_BUCKET:
         logging.error("S3_BUCKET_NAME environment variable not set. Exiting.")
@@ -78,12 +118,11 @@ def main():
     
     embeddings = BedrockEmbeddings(client=bedrock_client, model_id=BEDROCK_MODEL_ID)
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+        chunk_size=1000, # You might want to experiment with smaller sizes like 512
         chunk_overlap=100,
         length_function=len,
     )
     
-    # This list will only hold one batch at a time, not everything.
     current_batch = []
     batch_counter = 0
     files_processed = 0
@@ -98,37 +137,63 @@ def main():
                 continue
             
             s3_key = obj['Key']
-            catalogue_number = os.path.basename(s3_key).replace('.txt', '')
             
             try:
                 response = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_key)
                 text_content = response['Body'].read().decode('utf-8')
                 
-                chunks = text_splitter.split_text(text_content)
+                # --- FIX #1: PARSE METADATA AND ISOLATE MAIN CONTENT ---
+                # This is the most critical change.
+                parsed_metadata, main_content_to_chunk = parse_metadata_from_text(text_content)
                 
-                for i, chunk in enumerate(chunks):
-                    current_batch.append({
-                        'catalogue_number': catalogue_number,
-                        'chunk_id': f"{catalogue_number}_{i}",
-                        'chunk_text': chunk,
+                # If we couldn't parse essential metadata, log a warning and skip.
+                if not parsed_metadata.get('source_url') or not parsed_metadata.get('album_title'):
+                    logging.warning(f"Skipping file {s3_key} due to missing essential metadata (URL or Title).")
+                    continue
+
+                # --- FIX #2: CHUNK ONLY THE NARRATIVE CONTENT ---
+                chunks = text_splitter.split_text(main_content_to_chunk)
+                
+                for i, chunk_text in enumerate(chunks):
+                    # --- FIX #3: ENRICH THE CHUNK TEXT FOR BETTER EMBEDDINGS ---
+                    # Prepend key context to the text that will be embedded.
+                    # This makes the vector much more specific and powerful.
+                    enriched_chunk_text = (
+                        f"From the album titled '{parsed_metadata.get('album_title', 'N/A')}' by composer(s) {parsed_metadata.get('composer', 'N/A')}. "
+                        f"Note snippet: {chunk_text}"
+                    )
+
+                    # Create a dictionary containing the TRUE metadata, separate from the text.
+                    # This is what you will store in Parquet and show to the user.
+                    chunk_data = {
+                        # This is the text we will vectorize
+                        'chunk_text': enriched_chunk_text, 
+                        
+                        # These are the clean metadata fields for your application
+                        'album_title': parsed_metadata.get('album_title'),
+                        'catalogue_number': parsed_metadata.get('catalogue_number'),
+                        'composer': parsed_metadata.get('composer'),
+                        'performer': parsed_metadata.get('performer'),
+                        'source_url': parsed_metadata.get('source_url'),
+                        'chunk_id': f"{parsed_metadata.get('catalogue_number', 'unknown')}_{i}",
                         's3_source_key': s3_key
-                    })
+                    }
+                    current_batch.append(chunk_data)
                     
-                    # --- CORE LOGIC CHANGE ---
-                    # When the batch is full, process it and clear it.
+                    # Batch processing logic remains the same
                     if len(current_batch) >= BATCH_SIZE:
                         batch_counter += 1
                         process_and_upload_batch(current_batch, batch_counter, embeddings, s3_client)
-                        current_batch.clear() # Free the memory
+                        current_batch.clear()
                 
                 files_processed += 1
                 if files_processed % 100 == 0:
                     logging.info(f"Files processed so far: {files_processed}")
 
             except Exception as e:
-                logging.error(f"Failed to process file {s3_key}. Error: {e}")
+                logging.error(f"Failed to process file {s3_key}. Error: {e}", exc_info=True)
 
-    # --- After the loop, process any remaining chunks in the last batch ---
+    # Process the final batch
     if current_batch:
         batch_counter += 1
         process_and_upload_batch(current_batch, batch_counter, embeddings, s3_client)

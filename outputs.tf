@@ -16,11 +16,18 @@ output "s3_bucket_name" {
 
 output "api_server_public_dns" {
   description = "The public DNS name of the RAG API server."
-  value       = aws_instance.rag_api_server.public_dns
+  value = length(aws_instance.rag_api_server) > 0 ? aws_instance.rag_api_server[0].public_dns : "RAG API server was not created."
 }
 
 output "api_test_command" {
   description = "A sample curl command to test the API."
-  value       = "curl -X POST http://${aws_instance.rag_api_server.public_dns}/search -H \"Content-Type: application/json\" -d '{\"query\": \"recommend a cd with a 900 symphony inspired by nature\"}'"
+  value = (
+    length(aws_instance.rag_api_server) > 0 ?
+    "curl -X POST http://${aws_instance.rag_api_server[0].public_dns}/search -H \"Content-Type: application/json\" -d '{\"query\": \"recommend a cd with a 900 symphony inspired by nature\"}'" :
+    "RAG API server not created; curl command unavailable."
+  )
 }
+
+
+
 

@@ -4,9 +4,6 @@
 
 This project moves beyond shallow metadata (e.g., composer, title) to answer subjective user queries like *"Find me a recording of Baroque music that conveys a sense of grandeur and ceremonial dignity"* or *"Suggest some mysterious music for solo piano."*
 
-**Live Demo / Video:**
-`[---> Placeholder for a 2-3 minute video demo link (Loom, YouTube). This is highly recommended!]`
-
 ## The Vision & Problem Statement
 
 Standard classical music recommendation systems often fail because they rely on simple tags. They can find you *Beethoven's 5th Symphony*, but they can't answer *why* you should listen to a particular recording or what emotional journey it will take you on.
@@ -19,24 +16,3 @@ The core technical goal was to build this system in a **cost-optimized** manner,
 
 This project is a complete, cloud-native application deployed on AWS and managed entirely with Infrastructure as Code (IaC) via Terraform. The architecture is a scalable, event-driven pipeline designed for data processing, vectorization, and serving a live API.
 
-### High-Level Architecture
-```mermaid
-graph TD
-    subgraph "1. Data Ingestion"
-        A[Scraper EC2] -- scrapes --> B(Hyperion Website);
-        B -- saves --> C[Raw Data (JSON/PDF) in S3];
-    end
-    subgraph "2. Processing & Vectorization"
-        C -->|triggers SQS message| D(SQS Queue);
-        D --> E{Pre-processing Lambda};
-        E --> F[Cleaned Text in S3];
-        G[Vectorizer EC2] -- reads --> F;
-        G -- calls Bedrock --> H(Titan Embeddings);
-        G -- saves --> I[Vector Store (Parquet) in S3];
-    end
-    subgraph "3. API Serving"
-        I -->|loaded on start| J[RAG API EC2];
-        J -- calls Bedrock --> K(Claude 3 Sonnet);
-        L[User] -- HTTP --> J;
-        J -- JSON --> L;
-    end

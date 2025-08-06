@@ -16,6 +16,8 @@ The core technical goal was to build this system in a **cost-optimized** manner,
 
 This project is a complete, cloud-native application deployed on AWS and managed entirely with Infrastructure as Code (IaC) via Terraform. The architecture is a scalable, event-driven pipeline designed for data processing, vectorization, and serving a live API.
 
+![Diagram](assets/diagramdiscover.jpg)
+
 ### The Data Pipeline Explained
 
 The system is broken down into distinct, logical stages:
